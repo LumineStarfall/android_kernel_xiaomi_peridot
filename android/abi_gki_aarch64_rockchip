@@ -2452,7 +2452,13 @@
   devm_of_phy_get_by_index
   driver_find_device
   drm_aperture_remove_conflicting_framebuffers
+<<<<<<< HEAD
+=======
+  drm_atomic_add_encoder_bridges
+  drm_atomic_bridge_chain_check
+>>>>>>> a617974bdf0e (Merge tag 'ASB-2025-01-05_14-6.1' of https://android.googlesource.com/kernel/common into fifteen)
   drm_atomic_commit
+  drm_atomic_get_bridge_state
   drm_atomic_get_plane_state
   drm_atomic_helper_check
   drm_atomic_helper_check_plane_state
