@@ -7,6 +7,12 @@
  */
 
 #include <trace/hooks/sched.h>
+#include <linux/cpufreq.h>
+#include <linux/sched/cputime.h>
+#include "sched.h"
+#include <uapi/linux/sched/types.h>
+#include <linux/kthread.h>
+#include <linux/irq_work.h>
 
 #define IOWAIT_BOOST_MIN	(SCHED_CAPACITY_SCALE / 8)
 
