@@ -766,7 +766,6 @@ static void ufs_qcom_select_unipro_mode(struct ufs_qcom_host *host)
 		   REG_UFS_CFG1);
 
 	if (host->hw_ver.major >= 0x05) {
-		ufshcd_rmwl(host->hba, QUNIPRO_G4_SEL, 0, REG_UFS_CFG0);
 		ufshcd_rmwl(host->hba, HCI_UAWM_OOO_DIS, 0, REG_UFS_CFG0);
 	}
 
@@ -996,6 +995,7 @@ static void ufs_qcom_force_mem_config(struct ufs_hba *hba)
 		qcom_clk_set_flags(clki->clk, CLKFLAG_NORETAIN_PERIPH);
 		qcom_clk_set_flags(clki->clk, CLKFLAG_PERIPH_OFF_CLEAR);
 	}
+>>>>>>> 46b3bd24a256857243fe93266fce2026943e37ad
 }
 
 static int ufs_qcom_hce_enable_notify(struct ufs_hba *hba,
@@ -1123,7 +1123,7 @@ static int __ufs_qcom_cfg_timers(struct ufs_hba *hba, u32 gear,
 		 * make sure above write gets applied before we return from
 		 * this function.
 		 */
-		mb();
+		ufshcd_readl(hba, REG_UFS_SYS1CLK_1US);
 	}
 
 	if (ufs_qcom_cap_qunipro(host))
@@ -5012,7 +5012,9 @@ static void ufs_qcom_config_scaling_param(struct ufs_hba *hba,
 	p->polling_ms = 60;
 	p->timer = DEVFREQ_TIMER_DELAYED;
 	d->upthreshold = 70;
-	d->downdifferential = 65;
+	d->downdifferential = 5;
+
+	hba->clk_scaling.suspend_on_no_request = true;
 }
 
 #else

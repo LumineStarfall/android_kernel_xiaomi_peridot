@@ -1794,6 +1794,7 @@ static int shmem_swapin_folio(struct inode *inode, pgoff_t index,
 
 	/* We have to do this with folio locked to prevent races */
 	folio_lock(folio);
+	trace_android_vh_shmem_swapin_folio(folio);
 	if (!folio_test_swapcache(folio) ||
 	    folio_swap_entry(folio).val != swap.val ||
 	    !shmem_confirm_swap(mapping, index, swap)) {
@@ -2316,9 +2317,6 @@ static int shmem_mmap(struct file *file, struct vm_area_struct *vma)
 	ret = seal_check_future_write(info->seals, vma);
 	if (ret)
 		return ret;
-
-	/* arm64 - allow memory tagging on RAM-based files */
-	vm_flags_set(vma, VM_MTE_ALLOWED);
 
 	file_accessed(file);
 	vma->vm_ops = &shmem_vm_ops;
