@@ -7456,7 +7456,7 @@ unsigned long effective_cpu_util(int cpu, unsigned long util_cfs,
 				 enum cpu_util_type type,
 				 struct task_struct *p)
 {
-	unsigned long dl_util, util, irq, max;
+	unsigned long dl_util, util, irq, max = 0, scale;
 	struct rq *rq = cpu_rq(cpu);
 
 	scale = arch_scale_cpu_capacity(cpu);
