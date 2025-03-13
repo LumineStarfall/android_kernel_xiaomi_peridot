@@ -1,0 +1,201 @@
+name: buildisis
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      BUILD_TITLE:
+        description: 'Custom Build Title'
+        required: false
+      KERNEL_TREE:
+        description: 'Kernel Tree'
+        default: 'https://github.com/ahmedtohamy1/kernel_xiaomi_peridot'
+        required: true
+      KERNEL_TREE_BRANCH:
+        description: 'Kernel Tree Branch'
+        required: true
+        default: 'stable-r1'
+      CODENAME:
+        description: 'Phone Codename'
+        default: 'peridot'
+        required: true
+      UPLOAD_TO_RELEASE:
+        description: 'Upload to release'
+        type: boolean
+        default: false
+      NOTIFY_START:
+        description: 'Notify Build Start'
+        type: boolean
+        default: true
+      NOTIFY_SUCCESS:
+        description: 'Notify Build Success'
+        type: boolean
+        default: true
+      TELEGRAM_CHAT_ID:
+        description: 'Telegram Chat ID (optional)'
+        required: false
+
+jobs:
+  build:
+    if: github.event.repository.owner.id == github.event.sender.id
+    runs-on: ubuntu-latest
+    environment: Telegram
+    permissions:
+      contents: write
+    steps:
+    - name: Display User Inputs
+      run: |
+        echo "::group::User Environment Variables"
+        echo "Custom Build Title: ${{ github.event.inputs.BUILD_TITLE }}"
+        echo "Kernel Tree: ${{ github.event.inputs.KERNEL_TREE }}/tree/${{ github.event.inputs.KERNEL_TREE_BRANCH }}"
+        echo "Codename: ${{ github.event.inputs.CODENAME }}"
+        echo "Upload to Release: ${{ github.event.inputs.UPLOAD_TO_RELEASE }}"
+        echo "Notify Build Start: ${{ github.event.inputs.NOTIFY_START }}"
+        echo "Notify Build Success: ${{ github.event.inputs.NOTIFY_SUCCESS }}"
+        echo "Telegram Chat ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}"
+        echo "::endgroup::"
+
+    - name: Notify Build Start
+      if: ${{ github.event.inputs.NOTIFY_START == 'true' }}
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ github.event.inputs.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        format: html
+        message: |
+          <b>🚀 Kernel Build Started</b>
+          🔧 <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a>
+          <b>📦 Build Title</b>: <code>${{ github.event.inputs.BUILD_TITLE || github.event.inputs.CODENAME }}</code>
+          <b>📱 Device Codename</b>: <code>${{ github.event.inputs.CODENAME }}</code>
+          <b>🌳 Kernel Tree</b>: <code>${{ github.event.inputs.KERNEL_TREE }}/tree/${{ github.event.inputs.KERNEL_TREE_BRANCH }}</code>
+          <b>📤 Upload to Release</b>: <code>${{ github.event.inputs.UPLOAD_TO_RELEASE }}</code>
+
+    - name: Generate Build Date
+      id: build_date
+      run: |
+        build_date=$(date +"%Y%m%d")  
+        echo "build_date=$build_date" >> $GITHUB_OUTPUT
+
+    - name: Initialize workspace
+      run: |
+        mkdir workspace
+        cd workspace
+        echo "workspace-folder=$(pwd)" >> $GITHUB_OUTPUT
+        echo "start_time=$(date +%s)" >> $GITHUB_OUTPUT
+        echo "build_title=${{ github.event.inputs.BUILD_TITLE || github.event.inputs.CODENAME }}" >> $GITHUB_OUTPUT
+      id: workspace
+
+    - name: Prepare the build environment
+      run: |
+        sudo apt update -y
+        sudo apt install -y flex bison libncurses-dev libssl-dev bc build-essential git ccache binutils-aarch64-linux-gnu
+        mkdir -p $HOME/tc
+        cd $HOME/tc
+        wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang.tar.gz
+        mkdir clang
+        tar -xf clang.tar.gz -C clang
+        echo "tools-folder=$HOME/tc/clang" >> $GITHUB_OUTPUT
+      id: tools
+
+    - name: Clone kernel source
+      run: |
+        git clone --depth=1 ${{ github.event.inputs.KERNEL_TREE }} -b ${{ github.event.inputs.KERNEL_TREE_BRANCH }} kernel_tree
+        echo "kernel-folder=$(pwd)/kernel_tree" >> $GITHUB_OUTPUT
+      working-directory: ${{ steps.workspace.outputs.workspace-folder }}
+      id: kernel
+
+    - name: Building kernel
+      run: |
+        rm -rf KernelSU-Next
+        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+        export PATH="$HOME/tc/clang/bin:$PATH"
+        export LD_LIBRARY_PATH=${HOME}/tc/clang/lib64:$LD_LIBRARY_PATH
+        export KBUILD_COMPILER_STRING=$($HOME/tc/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
+        export KBUILD_LINKER_STRING=$($HOME/tc/clang/bin/ld.lld --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//' | sed 's/(compatible with [^)]*)//')
+
+        DATE=$(date '+%Y%m%d-%H%M')
+        OUT_DIR=out/
+        VERSION="agmad-isis-PERIDOT-${DATE}"
+
+        if [[ -z "${KEBABS}" ]]; then
+            COUNT="$(grep -c '^processor' /proc/cpuinfo)"
+            export KEBABS="$COUNT"
+        fi
+
+        echo "Jobs: ${KEBABS}"
+
+        ARGS="ARCH=arm64 \
+        O=${OUT_DIR} \
+        CC=clang \
+        LD=ld.lld \
+        CLANG_TRIPLE=aarch64-linux-gnu- \
+        CROSS_COMPILE=aarch64-linux-gnu- \
+        CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+        -j${KEBABS}"
+
+        START=$(date +"%s")
+
+        echo "------ Starting Compilation ------"
+
+        make -j${KEBABS} ${ARGS} peridot_defconfig
+        cd ${OUT_DIR}
+        make -j${KEBABS} ${ARGS} CC="ccache clang" HOSTCC="ccache gcc" HOSTCXX="cache g++" olddefconfig
+        cd ../
+        make -j${KEBABS} ${ARGS} CC="ccache clang" HOSTCC="ccache gcc" HOSTCXX="ccache g++" 2>&1 | tee build.log
+
+        echo "------ Finishing Build ------"
+
+        END=$(date +"%s")
+        DIFF=$((END - START))
+        if [ -f "out/arch/arm64/boot/Image.gz" ]; then
+            git clone -q https://github.com/ahmedtohamy1/ak3 -b peridot ak3
+            cp out/arch/arm64/boot/Image.gz ak3
+            cd ak3
+            zip -r9 "../${VERSION}.zip" * -x '*.git*' README.md *placeholder >> /dev/null
+            cd ..
+            rm -rf ak3
+            echo -e "\nCompleted in $((DIFF / 60)) minute(s) and $((DIFF % 60)) second(s) !"
+            echo -e "${VERSION}.zip is ready!"
+            echo "zipname=${VERSION}.zip" >> $GITHUB_OUTPUT
+        else
+            echo -e "\n Compilation Failed!"
+            exit 1
+        fi
+      working-directory: ${{ steps.kernel.outputs.kernel-folder }}
+      id: build
+
+    - name: Upload to Release
+      if: ${{ github.event.inputs.UPLOAD_TO_RELEASE == 'true' }}
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ${{ steps.kernel.outputs.kernel-folder }}/${{ steps.build.outputs.zipname }}
+        name: ${{ github.event.inputs.CODENAME }}-${{ steps.build_date.outputs.build_date }}
+        tag_name: ${{ github.event.inputs.CODENAME }}-${{ steps.build_date.outputs.build_date }}
+        body: |
+          <b>Kernel Build Succeeded</b> ✅
+          <b>${{ steps.workspace.outputs.build_title }}</b>
+          <b>Kernel successfully built!</b>, took ${{ steps.build.outputs.elapsed_time }} seconds.
+          <b>📱 Device Codename</b>: <code>${{ github.event.inputs.CODENAME }}</code>
+          <b>Kernel tree</b>: ${{ github.event.inputs.KERNEL_TREE }}/tree/${{ github.event.inputs.KERNEL_TREE_BRANCH }}
+          <b>Action</b>: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          <b>Workflow File</b>: ${{ github.workflow }}.yml
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      id: upload_release
+
+    - name: Notify Build Success
+      if: ${{ success() && github.event.inputs.NOTIFY_SUCCESS == 'true' }}
+      uses: appleboy/telegram-action@master
+      with:
+        to: ${{ github.event.inputs.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+        token: ${{ secrets.TELEGRAM_TOKEN }}
+        format: html
+        message: |
+          <b>Kernel Build Succeeded</b> ✅
+          🔧 <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Workflow Run</a>
+          <b>📦 Build Title</b>: <code>${{ steps.workspace.outputs.build_title }}</code>
+          <b>📱 Device Codename</b>: <code>${{ github.event.inputs.CODENAME }}</code>
+          <b>📄 Files</b>: <code>${{ steps.build.outputs.zipname }}</code>
+        files: |
+          ${{ steps.kernel.outputs.kernel-folder }}/${{ steps.build.outputs.zipname }}
