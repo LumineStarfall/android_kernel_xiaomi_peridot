@@ -34,6 +34,15 @@ on:
       TELEGRAM_CHAT_ID:
         description: 'Telegram Chat ID (optional)'
         required: false
+      KERNELSU_OPTION:
+        description: 'Choose KernelSU setup option (1: next, 2: next-susfs, 3: none)'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+          - '3'
 
 jobs:
   build:
@@ -53,6 +62,7 @@ jobs:
         echo "Notify Build Start: ${{ github.event.inputs.NOTIFY_START }}"
         echo "Notify Build Success: ${{ github.event.inputs.NOTIFY_SUCCESS }}"
         echo "Telegram Chat ID: ${{ github.event.inputs.TELEGRAM_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}"
+        echo "KernelSU Option: ${{ github.event.inputs.KERNELSU_OPTION }}"
         echo "::endgroup::"
 
     - name: Notify Build Start
@@ -69,6 +79,7 @@ jobs:
           <b>📱 Device Codename</b>: <code>${{ github.event.inputs.CODENAME }}</code>
           <b>🌳 Kernel Tree</b>: <code>${{ github.event.inputs.KERNEL_TREE }}/tree/${{ github.event.inputs.KERNEL_TREE_BRANCH }}</code>
           <b>📤 Upload to Release</b>: <code>${{ github.event.inputs.UPLOAD_TO_RELEASE }}</code>
+          <b>🔧 KernelSU Option</b>: <code>${{ github.event.inputs.KERNELSU_OPTION }}</code>
 
     - name: Generate Build Date
       id: build_date
@@ -106,8 +117,24 @@ jobs:
 
     - name: Building kernel
       run: |
+        # Remove existing KernelSU-Next directory if it exists
         rm -rf KernelSU-Next
-        curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+
+        # Choose the KernelSU setup script based on the selected option
+        if [[ "${{ github.event.inputs.KERNELSU_OPTION }}" == '1' ]]; then
+          echo "Using KernelSU Next setup script..."
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -s next
+        elif [[ "${{ github.event.inputs.KERNELSU_OPTION }}" == '2' ]]; then
+          echo "Using KernelSU Next-SUSFS setup script..."
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+        elif [[ "${{ github.event.inputs.KERNELSU_OPTION }}" == '3' ]]; then
+          echo "Skipping KernelSU setup..."
+        else
+          echo "Invalid KernelSU option selected!"
+          exit 1
+        fi
+
+        # Continue with the rest of the build process
         export PATH="$HOME/tc/clang/bin:$PATH"
         export LD_LIBRARY_PATH=${HOME}/tc/clang/lib64:$LD_LIBRARY_PATH
         export KBUILD_COMPILER_STRING=$($HOME/tc/clang/bin/clang --version | head -n 1 | perl -pe 's/\(http.*?\)//gs' | sed -e 's/  */ /g' -e 's/[[:space:]]*$//')
@@ -184,6 +211,32 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       id: upload_release
 
+    - name: Create GoFile upload script
+      run: |
+        echo '#!/bin/bash' > upload_gofile.sh
+        echo '' >> upload_gofile.sh
+        echo 'if [[ "$#"  ==  '\''0'\'' ]]; then' >> upload_gofile.sh
+        echo 'echo  -e '\''ERROR: No File Specified!'\'' && exit 1' >> upload_gofile.sh
+        echo 'fi' >> upload_gofile.sh
+        echo 'FILE="@$1"' >> upload_gofile.sh
+        echo 'SERVER=$(curl -s https://api.gofile.io/servers | jq -r '\''.data.servers[0].name'\'')' >> upload_gofile.sh
+        echo 'LINK=$(curl -# -F file=${FILE} https://${SERVER}.gofile.io/uploadFile | jq -r '\''.data|.downloadPage'\'') 2>&1' >> upload_gofile.sh
+        echo 'echo $LINK' >> upload_gofile.sh
+        chmod +x upload_gofile.sh
+
+    - name: Rename Kernel ZIP for GoFile
+      run: |
+        BUILD_TIME_SUFFIX=$(date +"%Y%m%d%H%M%S")
+        mv ${{ steps.kernel.outputs.kernel-folder }}/${{ steps.build.outputs.zipname }} ${{ steps.kernel.outputs.kernel-folder }}/${{ github.event.inputs.CODENAME }}-${{ steps.build_date.outputs.build_date }}-${BUILD_TIME_SUFFIX}.zip
+        echo "BUILD_TIME_SUFFIX=${BUILD_TIME_SUFFIX}" >> $GITHUB_ENV
+
+    - name: Upload Kernel ZIP to GoFile
+      id: upload_gofile
+      run: |
+        ./upload_gofile.sh ${{ steps.kernel.outputs.kernel-folder }}/${{ github.event.inputs.CODENAME }}-${{ steps.build_date.outputs.build_date }}-${{ env.BUILD_TIME_SUFFIX }}.zip > gofile_link.txt
+        FILE_URL=$(cat gofile_link.txt)
+        echo "FILE_URL=${FILE_URL}" >> $GITHUB_ENV
+
     - name: Notify Build Success
       if: ${{ success() && github.event.inputs.NOTIFY_SUCCESS == 'true' }}
       uses: appleboy/telegram-action@master
@@ -197,5 +250,6 @@ jobs:
           <b>📦 Build Title</b>: <code>${{ steps.workspace.outputs.build_title }}</code>
           <b>📱 Device Codename</b>: <code>${{ github.event.inputs.CODENAME }}</code>
           <b>📄 Files</b>: <code>${{ steps.build.outputs.zipname }}</code>
+          <b>🔗 GoFile Download Link</b>: <a href="${{ env.FILE_URL }}">Download</a>
         files: |
           ${{ steps.kernel.outputs.kernel-folder }}/${{ steps.build.outputs.zipname }}
