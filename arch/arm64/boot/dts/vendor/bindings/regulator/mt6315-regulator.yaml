@@ -30,10 +30,13 @@ properties:
         type: object
         $ref: "regulator.yaml#"
 
+<<<<<<< HEAD:arch/arm64/boot/dts/vendor/bindings/regulator/mt6315-regulator.yaml
         properties:
           regulator-name:
             pattern: "^vbuck[1-4]$"
 
+=======
+>>>>>>> a54c40cad26a33058bdd24e5fd4f6f6953147918:Documentation/devicetree/bindings/regulator/mt6315-regulator.yaml
     additionalProperties: false
 
 required:
@@ -51,7 +54,6 @@ examples:
 
       regulators {
         vbuck1 {
-          regulator-compatible = "vbuck1";
           regulator-min-microvolt = <300000>;
           regulator-max-microvolt = <1193750>;
           regulator-enable-ramp-delay = <256>;
@@ -59,7 +61,6 @@ examples:
         };
 
         vbuck3 {
-          regulator-compatible = "vbuck3";
           regulator-min-microvolt = <300000>;
           regulator-max-microvolt = <1193750>;
           regulator-enable-ramp-delay = <256>;
