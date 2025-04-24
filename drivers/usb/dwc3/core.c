@@ -41,7 +41,7 @@
 #include "debug.h"
 
 #define DWC3_DEFAULT_AUTOSUSPEND_DELAY	5000 /* ms */
-
+void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode);
 /**
  * dwc3_get_dr_mode - Validates and sets dr_mode
  * @dwc: pointer to our context structure
@@ -117,10 +117,6 @@ void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode)
 	  * and they can be set after core initialization.
 	  */
 	hw_mode = DWC3_GHWPARAMS0_MODE(dwc->hwparams.hwparams0);
-	if (hw_mode == DWC3_GHWPARAMS0_MODE_DRD && !ignore_susphy) {
-		if (DWC3_GCTL_PRTCAP(reg) != mode)
-			dwc3_enable_susphy(dwc, false);
-	}
 
 	reg &= ~(DWC3_GCTL_PRTCAPDIR(DWC3_GCTL_PRTCAP_OTG));
 	reg |= DWC3_GCTL_PRTCAPDIR(mode);
@@ -201,7 +197,8 @@ static void __dwc3_set_mode(struct work_struct *work)
 
 	spin_lock_irqsave(&dwc->lock, flags);
 
-	dwc3_set_prtcap(dwc, desired_dr_role, false);
+dwc3_set_prtcap(dwc, desired_dr_role);
+
 
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
@@ -851,7 +848,6 @@ static int dwc3_clk_enable(struct dwc3 *dwc)
 	 * blocking phy ops.
 	 */
 	if (!DWC3_VER_IS_WITHIN(DWC3, ANY, 194A))
-		dwc3_enable_susphy(dwc, true);
 
 	return 0;
 
@@ -1455,7 +1451,7 @@ static void dwc3_core_exit_mode(struct dwc3 *dwc)
 	}
 
 	/* de-assert DRVVBUS for HOST and OTG mode */
-	dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE, true);
+dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE);
 }
 
 static void dwc3_get_properties(struct dwc3 *dwc)
@@ -1894,7 +1890,8 @@ static int dwc3_probe(struct platform_device *pdev)
 
 	if (!dwc->sysdev_is_parent &&
 	    DWC3_GHWPARAMS0_AWIDTH(dwc->hwparams.hwparams0) == 64) {
-		ret = dma_set_mask_and_coherent(dwc->sysdev, DMA_BIT_MASK(64));
+ret = dma_set_mask_and_coherent(dwc->sysdev, DMA_BIT_MASK(63));
+
 		if (ret)
 			goto disable_clks;
 	}
@@ -2113,7 +2110,8 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 		if (ret)
 			return ret;
 
-		dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE, true);
+dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE);
+
 		dwc3_gadget_resume(dwc);
 		break;
 	case DWC3_GCTL_PRTCAP_HOST:
@@ -2121,7 +2119,8 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 			ret = dwc3_core_init_for_resume(dwc);
 			if (ret)
 				return ret;
-			dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST, true);
+dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST);
+
 			break;
 		}
 		/* Restore GUSB2PHYCFG bits that were modified in suspend */
@@ -2146,7 +2145,7 @@ static int dwc3_resume_common(struct dwc3 *dwc, pm_message_t msg)
 		if (ret)
 			return ret;
 
-		dwc3_set_prtcap(dwc, dwc->current_dr_role, true);
+dwc3_set_prtcap(dwc, dwc->current_dr_role);
 
 		dwc3_otg_init(dwc);
 		if (dwc->current_otg_role == DWC3_OTG_ROLE_HOST) {
